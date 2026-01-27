@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8"><title>TRADE-X | ADMIN</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="/socket.io/socket.io.js"></script>
+    <style>
+        :root { --accent: #2563eb; --side-bg: #0f172a; --warning: #fbbf24; }
+        body { background: #f8fafc; font-family: 'Inter', sans-serif; height: 100vh; display: flex; flex-direction: column; overflow: hidden; margin: 0; }
+        .wrapper { display: flex; flex: 1; overflow: hidden; }
+        .sidebar { width: 280px; background: var(--side-bg); color: white; padding: 25px; display: flex; flex-direction: column; justify-content: space-between; }
+        .nav-link-custom { color: #94a3b8; padding: 12px; border-radius: 12px; cursor: pointer; border: none; background: transparent; text-align: left; width: 100%; margin-bottom: 5px; }
+        .nav-link-custom.active { background: var(--accent); color: white; }
+        .content { flex: 1; padding: 35px; overflow-y: auto; background: #f1f5f9; }
+        .chart-card { background: white; border-radius: 20px; padding: 20px; height: 380px; margin-bottom: 20px; border: 1px solid #e2e8f0; }
+        #modalOverlay { position: fixed; inset: 0; background: rgba(0,0,0,0.6); backdrop-filter: blur(4px); z-index: 9999; display: none; align-items: center; justify-content: center; }
+        .modal-box { background: white; padding: 30px; border-radius: 20px; width: 550px; position: relative; max-height: 90vh; overflow-y: auto; }
+    </style>
+</head>
+<body>
+    <div id="modalOverlay" onclick="if(event.target.id === 'modalOverlay') closeM()"><div class="modal-box" onclick="event.stopPropagation()"><div id="modalContent"></div></div></div>
+    <div class="wrapper">
+        <div class="sidebar">
+            <div><h4 class="fw-bold mb-5">TRADE-X ADMIN</h4><nav><button class="nav-link-custom active" onclick="tab('dash', this)">Dashboard</button><button class="nav-link-custom" onclick="tab('rounds', this)">Market Rounds</button><button class="nav-link-custom" onclick="tab('teams', this)">Team Portfolios</button></nav></div>
+            <div class="bg-dark p-3 rounded-4">
+                <select id="vSel" class="form-select mb-3 bg-dark text-white border-secondary"><option value="market_line">Trends</option><option value="wealth_bar">Wealth Bars</option><option value="wealth_line">Wealth History</option></select>
+                <div class="row g-2"><div class="col-6"><button onclick="push(0)" class="btn btn-primary btn-sm w-100 fw-bold">GO LIVE</button></div><div class="col-6"><button onclick="push(1)" class="btn btn-warning btn-sm w-100 fw-bold">STANDBY</button></div></div>
+            </div>
+        </div>
+        <div class="content">
+            <div id="t-dash"><div class="row g-3"><div class="col-6"><div class="chart-card"><h6>Stock Index</h6><canvas id="cChart"></canvas></div></div><div class="col-6"><div class="chart-card"><h6>Wealth History</h6><canvas id="wChart"></canvas></div></div><div class="col-12"><div class="chart-card"><h6>Asset Summary</h6><canvas id="bChart"></canvas></div></div></div></div>
+            <div id="t-rounds" class="d-none"><div id="rGrid" class="row g-3"></div></div>
+            <div id="t-teams" class="d-none">
+                <div class="d-flex justify-content-between mb-4"><h4>Team Management</h4><button onclick="addT()" class="btn btn-success fw-bold">+ Add Team</button></div>
+                <div id="teamGrid" class="row g-3"></div>
+            </div>
+        </div>
+    </div>
+    <script>
+        const socket = io(); let gData = {}, charts = {}, curAucTab = 'lock';
+        async function refresh() { const r = await fetch('/api/get_data'); gData = await r.json(); render(); updCharts(); }
+        async function call(a, d) { await fetch('/api/admin/action', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({action:a, ...d}) }); }
+        
+        function render() {
+            document.getElementById('rGrid').innerHTML = [1,2,3,4,5].map(r => `<div class="col-md-4"><button class="btn btn-white border shadow-sm w-100 py-4 fw-bold rounded-4" onclick="openR(${r})">ROUND ${r}</button></div>`).join('');
+            document.getElementById('teamGrid').innerHTML = gData.teams.map(t => `<div class="col-md-6"><div class="bg-white p-3 rounded-4 border d-flex justify-content-between align-items-center shadow-sm"><div><h6 class="m-0 fw-bold">${t.name}</h6><small class="text-muted">Purse: ${Math.floor(t.purse)}</small></div><div class="btn-group"><button class="btn btn-sm btn-outline-danger" onclick="if(confirm('Sell all?')) call('sell_all', {team_id:${t.id}})">Sell All</button><button class="btn btn-sm btn-outline-primary" onclick="openP(${t.id})">Edit</button></div></div></div>`).join('');
+        }
+
+        function openR(r) {
+            let b = ''; if(r === 5) {
+                b = `<h4>Final Auction: Round 5</h4><div class="btn-group w-100 mb-3"><button class="btn ${curAucTab==='lock'?'btn-dark':'btn-outline-dark'}" onclick="aucT('lock',5)">Place Bids</button><button class="btn ${curAucTab==='res'?'btn-primary':'btn-outline-primary'}" onclick="aucT('res',5)">Results</button></div>
+                <div id="auc-lock" style="display:${curAucTab==='lock'?'block':'none'}">${gData.teams.map(t=>`<div class="d-flex justify-content-between align-items-center mb-2"><span>${t.name}</span><input type="number" id="bid_${t.id}" class="form-control w-25"></div>`).join('')}<button class="btn btn-primary w-100 mt-2" onclick="lockB()">LOCK BIDS</button></div>
+                <div id="auc-res" style="display:${curAucTab==='res'?'block':'none'}">${gData.teams.map(t=>`<div class="d-flex justify-content-between align-items-center mb-2"><span>${t.name} (${t.last_bid})</span><div class="btn-group"><button class="btn btn-sm btn-success" onclick="call('auction_resolve',{team_id:${t.id},status:'correct'})">WIN (2x)</button><button class="btn btn-sm btn-danger" onclick="call('auction_resolve',{team_id:${t.id},status:'wrong'})">LOSS (0.5x)</button></div></div>`).join('')}</div>`;
+            } else { b = `<h5 class="text-center mb-3">Update Round ${r} Prices</h5>${gData.companies.map(c=>`<div class="mb-2 d-flex justify-content-between align-items-center p-2 rounded" style="background:${c.color}15"><span class="fw-bold">${c.name} (${c.price})</span><input type="number" id="d_${c.id}" class="form-control w-25" placeholder="+/-"></div>`).join('')}<button class="btn btn-primary w-100 mt-3 py-2 fw-bold" onclick="subR(${r})">SYNC DATA</button>`; }
+            document.getElementById('modalContent').innerHTML = b; document.getElementById('modalOverlay').style.display='flex';
+        }
+
+        function openP(tid) {
+            const t = gData.teams.find(x=>x.id==tid);
+            let b = `<h5>Edit Portfolio: ${t.name}</h5>`;
+            b += gData.companies.map((c,i)=>`<div class="mb-2 d-flex justify-content-between align-items-center"><span>${c.name}</span><input type="number" id="st_${i}" class="form-control w-25" value="${t.stocks[i]||0}"></div>`).join('');
+            b += `<button class="btn btn-primary w-100 mt-3 py-2 fw-bold" onclick="saveP(${tid})">SAVE CHANGES</button>`;
+            document.getElementById('modalContent').innerHTML = b; document.getElementById('modalOverlay').style.display='flex';
+        }
+
+        function subR(rid) { const delta = {}; gData.companies.forEach(c => delta[c.id] = document.getElementById('d_'+c.id).value || 0); call('update_round', {delta, round_id: rid}); closeM(); }
+        function lockB() { const bids = {}; gData.teams.forEach(t => bids[t.id] = document.getElementById('bid_'+t.id).value || 0); curAucTab='res'; call('auction_lock_bids', {bids}); openR(5); }
+        function saveP(tid) { const stocks = gData.companies.map((_,i)=>document.getElementById('st_'+i).value||0); call('update_portfolio', {team_id:tid, stocks}); closeM(); }
+        function push(ov) { call('sync_screen', {view: document.getElementById('vSel').value, overlay: ov}); }
+        function addT() { const n = prompt("Enter Team Name:"); if(n) call('add_team', {team_name: n}); }
+        function aucT(t,r) { curAucTab=t; openR(r); }
+        function closeM() { document.getElementById('modalOverlay').style.display='none'; }
+        function tab(id, b) { document.querySelectorAll('[id^="t-"]').forEach(x=>x.classList.add('d-none')); document.getElementById('t-'+id).classList.remove('d-none'); document.querySelectorAll('.nav-link-custom').forEach(l=>l.classList.remove('active')); b.classList.add('active'); }
+        function updCharts() {
+            const opt = {maintainAspectRatio:false, animation:false, plugins:{legend:{display:false}}};
+            if(charts.l) charts.l.destroy(); charts.l = new Chart(document.getElementById('cChart'), {type:'line', data:{labels:gData.companies[0].history.map((_,i)=>"R"+i), datasets:gData.companies.map(c=>({data:c.history, borderColor:c.color, tension:0.3}))}, options:opt});
+            if(charts.w) charts.w.destroy(); charts.w = new Chart(document.getElementById('wChart'), {type:'line', data:{labels:gData.companies[0].history.map((_,i)=>"R"+i), datasets:gData.teams.map(t=>({data:t.wealth_history, tension:0.3}))}, options:opt});
+            const ds = gData.companies.map((c,i)=>({label:c.name, data:gData.teams.map(t=>(t.stocks[i]||0)*c.price), backgroundColor:c.color, stack:'S'})); ds.push({label:'Purse', data:gData.teams.map(t=>t.purse), backgroundColor:'#2563eb', stack:'S'});
+            if(charts.b) charts.b.destroy(); charts.b = new Chart(document.getElementById('bChart'), {type:'bar', data:{labels:gData.teams.map(t=>t.name), datasets:ds}, options:{...opt, scales:{x:{stacked:true}, y:{stacked:true}}}});
+        }
+        socket.on('data_update', refresh); refresh();
+    </script>
+</body>
+</html>
