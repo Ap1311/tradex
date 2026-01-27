@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8"><title>TRADE-X | LIVE</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="/socket.io/socket.io.js"></script>
+    <style>
+        :root { --primary: #2563eb; --bg: #f8fafc; }
+        body { background: var(--bg); font-family: 'Inter', sans-serif; height: 100vh; overflow: hidden; margin: 0; display: flex; flex-direction: column; }
+        #default-screen { position: fixed; inset: 0; background: #fff; z-index: 10000; display: flex; align-items: center; justify-content: center; transition: opacity 0.6s ease; }
+        .logo-glow { font-size: 7rem; font-weight: 900; color: var(--primary); letter-spacing: -3px; animation: glowPulse 3s infinite ease-in-out; }
+        @keyframes glowPulse { 0%, 100% { transform: scale(1); filter: drop-shadow(0 0 5px rgba(37,99,235,0)); } 50% { transform: scale(1.05); filter: drop-shadow(0 0 25px rgba(37,99,235,0.4)); } }
+        .header { height: 8vh; background: #fff; display: flex; align-items: center; justify-content: space-between; padding: 0 40px; border-bottom: 1px solid #e2e8f0; }
+        .main { flex: 1; display: flex; padding: 25px; gap: 25px; height: 86vh; }
+        .chart-box { flex: 2.2; background: #fff; border-radius: 24px; padding: 30px; border: 1px solid #e2e8f0; shadow: 0 10px 15px -3px rgba(0,0,0,0.1); }
+        .list-box { flex: 1; background: #fff; border-radius: 24px; padding: 30px; border: 1px solid #e2e8f0; display: flex; flex-direction: column; }
+        #content { flex: 1; overflow-y: auto; scrollbar-width: none; margin-top: 20px; }
+        .team-row { display: flex; justify-content: space-between; align-items: center; padding: 15px 20px; background: #f8fafc; border-radius: 15px; margin-bottom: 10px; font-weight: 700; border-left: 6px solid var(--primary); color: #1e293b; transition: all 0.3s ease; }
+        .team-name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 65%; font-size: clamp(0.9rem, 2vh, 1.4rem); }
+        .team-val { font-size: clamp(1rem, 2.2vh, 1.5rem); color: var(--primary); }
+        footer { height: 5vh; background: #fff; border-top: 1px solid #e2e8f0; padding: 0 40px; display: flex; justify-content: space-between; align-items: center; color: #94a3b8; font-size: 13px; }
+        #main-wrapper { transition: opacity 0.6s ease; opacity: 0; }
+    </style>
+</head>
+<body>
+    <div id="default-screen"><div class="logo-glow">TRADE-X 2.0</div></div>
+    <div id="main-wrapper" class="d-flex flex-column h-100">
+        <div class="header"><h1 class="fw-bold m-0 text-primary">TRADE-X</h1><span class="badge bg-primary rounded-pill px-3 py-2">LIVE SESSION</span></div>
+        <div class="main">
+            <div class="chart-box"><canvas id="liveChart"></canvas></div>
+            <div class="list-box"><h4 id="hText" class="fw-bold border-bottom pb-3">RANKING</h4><div id="content"></div></div>
+        </div>
+        <footer><span>Aarav Programmers</span><span>aaravprogrammers@gmail.com</span></footer>
+    </div>
+    <script>
+        const socket = io(); let chart; let currentView = "";
+        async function update() {
+            const r = await fetch('/api/get_data'); const d = await r.json(); const s = d.screenState;
+            document.getElementById('default-screen').style.opacity = s.overlayActive ? "1" : "0";
+            document.getElementById('main-wrapper').style.opacity = s.overlayActive ? "0" : "1";
+            if(s.overlayActive) return;
+            const v = s.activeView; const ctx = document.getElementById('liveChart').getContext('2d');
+            let labels = d.companies[0].history.map((_, i) => "R" + i), datasets = [], type = 'line';
+            if (v === 'market_line') {
+                datasets = d.companies.map(c => ({ label: c.name, data: c.history, borderColor: c.color, tension: 0.4, pointRadius: 0, borderWidth: 4 }));
+                document.getElementById('content').innerHTML = d.companies.map(c => `<div class="team-row" style="border-left-color:${c.color}"><span class="team-name">${c.name}</span><strong class="team-val">${c.price}</strong></div>`).join('');
+            } else {
+                const sorted = [...d.teams].sort((a,b) => b.wealth - a.wealth);
+                if (v === 'wealth_line') datasets = d.teams.map(t => ({ label: t.name, data: t.wealth_history, tension: 0.4, borderWidth: 3 }));
+                else { type = 'bar'; labels = sorted.map(t => t.name); datasets = d.companies.map((c, i) => ({ label: c.name, data: sorted.map(t => (t.stocks[i] || 0) * c.price), backgroundColor: c.color, stack: 'S' })); datasets.push({ label: 'Purse', data: sorted.map(t => t.purse), backgroundColor: '#2563eb', stack: 'S' }); }
+                document.getElementById('content').innerHTML = sorted.map(t => `<div class="team-row"><span class="team-name">${t.name}</span><strong class="team-val">${Math.floor(t.wealth)}</strong></div>`).join('');
+            }
+            if (chart && currentView === v && chart.config.type === type) { chart.data.labels = labels; chart.data.datasets = datasets; chart.update('none'); }
+            else { if (chart) chart.destroy(); chart = new Chart(ctx, { type, data: { labels, datasets }, options: { maintainAspectRatio: false, animation: false, plugins: { legend: { display: v === 'market_line' } } } }); currentView = v; }
+        }
+        socket.on('data_update', update); update();
+    </script>
+</body>
+</html>
