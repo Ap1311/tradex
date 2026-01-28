@@ -3,13 +3,11 @@ const mysql = require('mysql2/promise');
 const http = require('http');
 const { Server } = require('socket.io');
 const session = require('express-session');
-const path = require('path');
 
 const app = express();
 const server = http.createServer(app);
 const io = new Server(server);
 
-// Database Connection - Update with your credentials
 const pool = mysql.createPool({
     host: 'localhost',
     user: 'root',
@@ -18,11 +16,9 @@ const pool = mysql.createPool({
 });
 
 app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
 app.use(express.static('public'));
 app.use(session({ secret: 'ap1311_secret', resave: false, saveUninitialized: true }));
 
-// Core Logic: Syncs Wealth and History
 async function syncWealth() {
     const [comps] = await pool.query("SELECT id, price, history FROM companies");
     const [teams] = await pool.query("SELECT * FROM teams");
@@ -34,8 +30,9 @@ async function syncWealth() {
     for (const t of teams) {
         const stocks = JSON.parse(t.stocks || '[]');
         let assetVal = 0;
-        stocks.forEach((qty, cid) => {
-            if (compMap[cid]) assetVal += (qty * compMap[cid].price);
+        stocks.forEach((qty, i) => {
+            const company = comps[i]; 
+            if (company) assetVal += (qty * company.price);
         });
 
         const totalWealth = parseFloat(t.purse) + assetVal;
@@ -48,12 +45,10 @@ async function syncWealth() {
     io.emit('data_update'); 
 }
 
-// Routes
 app.get('/api/get_data', async (req, res) => {
     const [settings] = await pool.query("SELECT * FROM settings WHERE id = 1");
     const [companies] = await pool.query("SELECT * FROM companies ORDER BY id ASC");
     const [teams] = await pool.query("SELECT * FROM teams");
-
     res.json({
         screenState: { activeView: settings[0].active_view, overlayActive: !!settings[0].overlay_active },
         companies: companies.map(c => ({ ...c, history: c.history.split(',').map(Number) })),
@@ -96,12 +91,11 @@ app.post('/api/admin/action', async (req, res) => {
             const [t] = await pool.query("SELECT wealth FROM teams WHERE id = ?", [data.team_id]);
             await pool.query("UPDATE teams SET stocks = '[0,0,0,0,0,0,0]', purse = ? WHERE id = ?", [t[0].wealth, data.team_id]);
         } else if (action === 'add_team') {
-            const n = data.team_name;
-            await pool.query("INSERT INTO teams (name, stocks, wealth_history, wealth, purse) VALUES (?, '[0,0,0,0,0,0,0]', '10000', 10000, 10000)", [n]);
+            await pool.query("INSERT INTO teams (name, stocks, wealth_history, wealth, purse) VALUES (?, '[0,0,0,0,0,0,0]', '10000', 10000, 10000)", [data.team_name]);
         }
         await syncWealth();
         res.json({ status: 'success' });
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-server.listen(3000, () => console.log('Server: http://localhost:3000'));
+server.listen(3000, () => console.log('Server running on http://localhost:3000'));
