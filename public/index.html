@@ -12,13 +12,20 @@
         .logo-glow { font-size: 7rem; font-weight: 900; color: var(--primary); animation: glowPulse 3s infinite; }
         @keyframes glowPulse { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.05); } }
         .header { height: 8vh; background: #fff; display: flex; align-items: center; justify-content: space-between; padding: 0 40px; border-bottom: 1px solid #e2e8f0; }
-        .main { flex: 1; display: flex; padding: 20px; gap: 20px; height: 92vh; }
+        .main { flex: 1; display: flex; padding: 20px; gap: 20px; height: 92vh; overflow: hidden; }
         .chart-box { flex: 3; background: #fff; border-radius: 24px; padding: 25px; border: 1px solid #e2e8f0; box-shadow: 0 10px 15px -3px rgba(0,0,0,0.1); display: flex; flex-direction: column; }
-        .list-box { flex: 1; background: #fff; border-radius: 24px; padding: 25px; border: 1px solid #e2e8f0; display: flex; flex-direction: column; max-width: 450px; }
-        #content { flex: 1; overflow-y: auto; margin-top: 15px; scrollbar-width: none; }
+        .list-box { flex: 1; background: #fff; border-radius: 24px; padding: 25px; border: 1px solid #e2e8f0; display: flex; flex-direction: column; max-width: 450px; height: 100%; overflow: hidden; }
+        
+        /* Scroller enabled only for leaderboard content */
+        #content { flex: 1; overflow-y: auto; margin-top: 15px; padding-right: 10px; }
+        
+        #content::-webkit-scrollbar { width: 8px; }
+        #content::-webkit-scrollbar-track { background: #f1f1f1; border-radius: 10px; }
+        #content::-webkit-scrollbar-thumb { background: var(--primary); border-radius: 10px; }
+
         .team-row { display: flex; justify-content: space-between; align-items: center; padding: 12px 18px; background: #f8fafc; border-radius: 12px; margin-bottom: 8px; font-weight: 700; border-left: 5px solid var(--primary); }
         #liveChart { flex: 1; width: 100% !important; height: 100% !important; }
-        #main-wrapper { transition: opacity 0.6s ease; opacity: 0; flex: 1; display: flex; flex-direction: column; }
+        #main-wrapper { transition: opacity 0.6s ease; opacity: 0; flex: 1; display: flex; flex-direction: column; height: 100vh; }
     </style>
 </head>
 <body>
@@ -27,7 +34,7 @@
         <div class="header"><h1 class="fw-bold m-0 text-primary">TRADE-X</h1><span class="badge bg-primary rounded-pill px-3 py-2">LIVE MARKET</span></div>
         <div class="main">
             <div class="chart-box"><canvas id="liveChart"></canvas></div>
-            <div class="list-box"><h4 id="hText" class="fw-bold border-bottom pb-2">RANKINGS</h4><div id="content"></div></div>
+            <div class="list-box"><h4 id="hText" class="fw-bold border-bottom pb-2">LEADERBOARD</h4><div id="content"></div></div>
         </div>
     </div>
     <script>
@@ -47,10 +54,28 @@
                 document.getElementById('content').innerHTML = d.companies.map(c => `<div class="team-row" style="border-left-color:${c.color}"><span>${c.name}</span><strong>${c.price}</strong></div>`).join('');
                 document.getElementById('hText').innerText = "LIVE PRICES";
             } else {
-                const sorted = [...d.teams].sort((a,b) => b.wealth - a.wealth);
-                if (v === 'wealth_line') datasets = d.teams.map(t => ({ label: t.name, data: t.wealth_history, tension: 0.4, borderWidth: 3 }));
-                else { type = 'bar'; labels = sorted.map(t => t.name); datasets = d.companies.map((c, i) => ({ label: c.name, data: sorted.map(t => (t.stocks[i] || 0) * c.price), backgroundColor: c.color, stack: 'S' })); datasets.push({ label: 'Purse', data: sorted.map(t => t.purse), backgroundColor: '#2563eb', stack: 'S' }); }
-                document.getElementById('content').innerHTML = sorted.map(t => `<div class="team-row"><span>${t.name}</span><strong>${Math.floor(t.wealth)}</strong></div>`).join('');
+                // 1. DATA FOR CHART (Original Order)
+                const chartTeams = d.teams; 
+                
+                // 2. DATA FOR LEADERBOARD (Ordered by Wealth)
+                const sortedTeams = [...d.teams].sort((a, b) => b.wealth - a.wealth);
+
+                if (v === 'wealth_line') {
+                    datasets = chartTeams.map(t => ({ label: t.name, data: t.wealth_history, tension: 0.4, borderWidth: 3 }));
+                } else { 
+                    type = 'bar'; 
+                    labels = chartTeams.map(t => t.name); // Chart uses original order
+                    datasets = d.companies.map((c, i) => ({ 
+                        label: c.name, 
+                        data: chartTeams.map(t => (t.stocks[i] || 0) * c.price), 
+                        backgroundColor: c.color, 
+                        stack: 'S' 
+                    })); 
+                    datasets.push({ label: 'Purse', data: chartTeams.map(t => t.purse), backgroundColor: '#2563eb', stack: 'S' }); 
+                }
+                
+                // 3. RENDER ORDERED LIST (Leaderboard only)
+                document.getElementById('content').innerHTML = sortedTeams.map(t => `<div class="team-row"><span>${t.name}</span><strong>${Math.floor(t.wealth)}</strong></div>`).join('');
                 document.getElementById('hText').innerText = "LEADERBOARD";
             }
 
