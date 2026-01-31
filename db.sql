@@ -10,7 +10,7 @@ DROP TABLE IF EXISTS teams;
 -- 3. Create settings table
 CREATE TABLE settings (
     id INT PRIMARY KEY,
-    active_view VARCHAR(50) DEFAULT 'market_line',
+    active_view VARCHAR(100) DEFAULT 'market_line',
     overlay_active TINYINT(1) DEFAULT 1
 );
 
